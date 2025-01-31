@@ -1,0 +1,45 @@
+video:
+  supported_formats:
+    - mp4
+    - mov
+    - avi
+    - wmv
+  frame_extraction:
+    enabled: true
+    interval_seconds: 30
+  youtube:
+    enabled: true
+    preferred_quality: "720p"
+    # Supported URL patterns
+    url_patterns:
+      - "youtube.com/watch"
+      - "youtu.be/"
+
+audio:
+  model: "whisper"  # or "wav2vec2"
+  device: "auto"    # Changed from "cuda" to "auto"
+  language: "auto"
+
+nlp:
+  summarization:
+    model: "gpt-4"
+    max_steps: 10
+    style: "user-friendly"
+  
+  translation:
+    model: "gpt-4"  # or "marian-mt"
+    supported_languages:
+      - en
+      - es
+      - fr
+      - zh
+      - de
+
+output:
+  format: "pdf"  # or "html"
+  template: "default"
+  include_images: true
+
+logging:
+  level: "INFO"
+  file: "app.log" 

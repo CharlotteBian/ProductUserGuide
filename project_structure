@@ -1,0 +1,32 @@
+video_guide_generator/
+├── src/
+│   ├── video/
+│   │   ├── __init__.py
+│   │   └── processor.py
+│   ├── audio/
+│   │   ├── __init__.py
+│   │   └── transcriber.py
+│   ├── nlp/
+│   │   ├── __init__.py
+│   │   ├── summarizer.py
+│   │   └── translator.py
+│   ├── output/
+│   │   ├── __init__.py
+│   │   └── formatter.py
+│   └── utils/
+│       ├── __init__.py
+│       └── logger.py
+├── data/
+│   ├── raw/
+│   ├── processed/
+│   └── output/
+├── config/
+│   └── config.yaml
+├── models/
+│   └── .gitkeep
+├── tests/
+│   └── __init__.py
+├── app.py
+├── pipeline.py
+├── requirements.txt
+└── README.md 
