@@ -1,9 +1,16 @@
 import cv2
+from googletrans import Translator
 import numpy as np
 from pathlib import Path
 import logging
 from typing import Tuple, List, Union
 from pytube import YouTube
+import requests
+from moviepy.editor import VideoFileClip  
+import os 
+from typing import Dict
+import streamlit as st
+
 import re
 try:
     from moviepy.editor import VideoFileClip
@@ -108,8 +115,9 @@ class VideoProcessor:
             else:
                 video_path = Path(input_path)
             
+            print(f"video_path , {video_path}")
             # Validate the video file
-            self.validate_video(video_path)
+            #self.validate_video(video_path)
             
             # Compress video if needed
             compressed_path = self.compress_video(video_path, max_size_mb)
@@ -149,6 +157,7 @@ class VideoProcessor:
     def extract_audio(self, video_path: Path) -> Path:
         """Extract audio from video file."""
         try:
+            
             # Convert to absolute paths
             video_path = Path(video_path).resolve()
             base_dir = Path().resolve()
@@ -157,55 +166,14 @@ class VideoProcessor:
             
             output_path = output_dir / f"{video_path.stem}.wav"
             
-            # Try using ffmpeg directly instead of moviepy for more reliable extraction
-            import ffmpeg
-            
-            try:
-                # First attempt: direct ffmpeg extraction
-                stream = ffmpeg.input(str(video_path))
-                stream = ffmpeg.output(stream, str(output_path),
-                                     acodec='pcm_s16le',
-                                     ac=1,
-                                     ar='44100',
-                                     loglevel='error',
-                                     **{'y': None})  # Overwrite if exists
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-            except ffmpeg.Error as e:
-                self.logger.warning(f"Direct ffmpeg extraction failed, trying fallback method: {str(e)}")
-                
-                # Fallback method: Try re-encoding the video first
-                temp_video = output_dir / f"temp_{video_path.name}"
-                
-                # Re-encode video to fix potential corruption
-                stream = ffmpeg.input(str(video_path))
-                stream = ffmpeg.output(stream, str(temp_video),
-                                     vcodec='libx264',
-                                     acodec='aac',
-                                     strict='experimental',
-                                     loglevel='error',
-                                     **{'y': None})
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-                # Now try audio extraction from the re-encoded video
-                stream = ffmpeg.input(str(temp_video))
-                stream = ffmpeg.output(stream, str(output_path),
-                                     acodec='pcm_s16le',
-                                     ac=1,
-                                     ar='44100',
-                                     loglevel='error',
-                                     **{'y': None})
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-                # Clean up temporary file
-                if temp_video.exists():
-                    temp_video.unlink()
-            
-            if not output_path.exists():
-                raise FileNotFoundError(f"Failed to create audio file at {output_path}")
+            video = VideoFileClip(str(video_path))  
+
+            # Extract the audio  
+            audio = video.audio  
+
+            # Write the audio to a file  
+            audio.write_audiofile(str(output_path))
+
             
             self.logger.info(f"Audio extracted successfully: {output_path}")
             return output_path
@@ -249,4 +217,49 @@ class VideoProcessor:
             
         except Exception as e:
             self.logger.error(f"Error extracting frames: {str(e)}")
+            raise
+    
+    def extract_audio_segments(self, video_path, intervals):  
+          
+        try:
+            # Load the video file  
+            video = VideoFileClip(video_path)
+            base_dir = Path().resolve()
+            
+            # Iterate over the specified intervals  
+            for i, (start_time, end_time) in enumerate(intervals):  
+                # Extract the audio segment  
+                audio_segment = video.audio.subclip(start_time, end_time)  
+                video_path = Path(video_path).resolve()
+                # Define the output path  
+                output_path = base_dir / "data" / "processed" / "audio" / f"{video_path.stem}"
+                output_path.mkdir(parents=True, exist_ok=True)
+                
+                audio_path = output_path / f'audio_segment_{i}.mp3'  
+                
+                # Write the audio segment to a file  
+                audio_segment.write_audiofile(audio_path)  
+            return output_path
+        except Exception as e:
+            self.logger.error(f"Error extracting audio: {str(e)}")
+            raise
+    
+    def transcribe(self, audio_path: Path) -> Dict[str, str]:
+        """Transcribe audio file to text."""
+        try:
+            if self.model_name == "whisper":
+                result = self.model.transcribe(str(audio_path))
+                transcription = {
+                    'text': result['text'],
+                    'language': result.get('language', 'en')
+                }
+            else:
+                # Implementation for Wav2Vec2 would go here
+                raise NotImplementedError("Wav2Vec2 not yet implemented")
+                
+            self.logger.info(f"Transcription completed successfully")
+            return transcription
+            
+        except Exception as e:
+            self.logger.error(f"Error during transcription: {str(e)}")
             raise 
