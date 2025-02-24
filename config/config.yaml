@@ -6,7 +6,7 @@ video:
     - wmv
   frame_extraction:
     enabled: true
-    interval_seconds: 5
+    interval_seconds: 30
   youtube:
     enabled: true
     preferred_quality: "720p"
@@ -14,7 +14,6 @@ video:
     url_patterns:
       - "youtube.com/watch"
       - "youtu.be/"
-      - "pwc-my.sharepoint.com/"
 
 audio:
   model: "whisper"  # or "wav2vec2"
@@ -33,7 +32,7 @@ nlp:
       - en
       - es
       - fr
-      - zh-CN
+      - zh
       - de
 
 output:
