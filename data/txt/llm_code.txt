@@ -1,0 +1,34 @@
+```python
+from fpdf import FPDF
+
+class PDF(FPDF):
+    def header(self):
+        self.set_font('Arial', 'B', 12)
+        self.cell(0, 10, 'Project Dashboard Overview', ln=True, align='C')
+
+    def footer(self):
+        self.set_y(-15)
+        self.set_font('Arial', 'I', 8)
+        self.cell(0, 10, f'Page {self.page_no()}', 0, 0, 'C')
+
+pdf = PDF()
+pdf.add_page()
+pdf.set_font('Arial', '', 12)
+
+# Set the explanation
+explanation = (
+    "This image represents a project dashboard from PwC M&A Path. "
+    "It displays an overview of all projects, including their names, "
+    "engagement leads, and other relevant information. Each card represents a single "
+    "project, and users can navigate through using the search filters or create new projects."
+)
+
+# Add explanation to PDF
+pdf.multi_cell(0, 10, explanation, align='L')
+
+# Add the image to PDF
+image_path = "project_dashboard.png"  # Path to your image file
+pdf.image(image_path, x=10, y=60, w=190)
+
+pdf.output("project_dashboard_overview.pdf")
+```

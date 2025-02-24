@@ -2,17 +2,9 @@ import logging
 from pathlib import Path
 from typing import Dict
 import sys
+from googletrans import Translator
 
 # Add detailed error checking
-def check_numpy():
-    try:
-        import numpy as np
-        print(f"NumPy version: {np.__version__}")
-        return True
-    except ImportError as e:
-        print(f"Failed to import NumPy: {e}")
-        return False
-
 def check_torch():
     try:
         import torch
@@ -35,14 +27,12 @@ def check_whisper():
 # Run checks before class definition
 print("Python version:", sys.version)
 print("\nChecking dependencies:")
-numpy_ok = check_numpy()
 torch_ok = check_torch()
 whisper_ok = check_whisper()
 
-if not all([numpy_ok, torch_ok, whisper_ok]):
+if not all([torch_ok, whisper_ok]):
     raise ImportError("Required dependencies are not properly installed")
 
-import numpy as np
 import torch
 import whisper
 
@@ -77,21 +67,23 @@ class Transcriber:
             print(f"Detailed error: {str(e)}")
             raise
             
-    def transcribe(self, audio_path: Path) -> Dict[str, str]:
+    def transcribe(self, target_language, audio_path: Path) -> Dict[str, str]:
         """Transcribe audio file to text."""
         try:
+            translator = Translator()  
             if self.model_name == "whisper":
                 result = self.model.transcribe(str(audio_path))
+                translation = translator.translate(result['text'], src='en', dest=target_language)
                 transcription = {
-                    'text': result['text'],
-                    'language': result.get('language', 'en')
+                    'text': translation.text,
+                    'language': result.get('language', target_language)
                 }
             else:
                 # Implementation for Wav2Vec2 would go here
                 raise NotImplementedError("Wav2Vec2 not yet implemented")
                 
             self.logger.info(f"Transcription completed successfully")
-            return transcription
+            return translation.text
             
         except Exception as e:
             self.logger.error(f"Error during transcription: {str(e)}")
