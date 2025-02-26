@@ -112,6 +112,10 @@ def main():
                     st.video(youtube_url)
                 except Exception as e:
                     st.error(f"Error downloading video: {str(e)}")
+        
+    
+    with col2:
+        
         if video_path:
             # Show processing status and preview
             st.info("Video loaded and ready for processing!")
@@ -120,7 +124,10 @@ def main():
                 st.stop()
             
             frames_dir = Path('data/processed/frames') / video_path.stem
-            if not frames_dir:
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            frame_data = video_processor.directory_has_files(frames_dir)
+            st.info(f"frame_data, {frame_data}")
+            if not frame_data:
                 try: 
                     with st.spinner("Extracting Frames..."):
                         frames = video_processor.extract_frames(video_path)
@@ -132,20 +139,23 @@ def main():
                     st.success("Frames extracted successfully!")
                 except Exception as e:
                     st.error(f"Error extracting frames: {str(e)}")
-    
-    with col2:
-        
-        if video_path:  
-            frames_dir = Path('data/processed/frames') / video_path.stem
-            if frames_dir:
-                
+            
+            
+            st.info(f"{video_processor.directory_has_files(frames_dir)}")
+            if video_processor.directory_has_files(frames_dir):
+                with st.spinner("Extracting audio..."):
+                    audio_path = video_processor.extract_audio(video_path)
+                # if audio_path:
+                #     audio_text= video_processor.transcribe_audio(audio_path)
+                #     st.info(f"audio_text, {audio_text}")
+                st.info(f"audio_path, {audio_path}")
                 # Language selection
                 target_language = st.selectbox(
                     "Select output language",
                     config['nlp']['translation']['supported_languages'],
-                    format_func=lambda x: {'en': 'English', 'es': 'Spanish', 
-                                        'fr': 'French', 'zh-CN': 'Chinese', 
-                                        'de': 'German'}[x]
+                    format_func=lambda x: {'english': 'English', 'spanish': 'Spanish', 
+                                        'french': 'French', 'chinese': 'Chinese', 
+                                        'german': 'German'}[x]
                 )
                 st.info(f"Target lang, {target_language}")
                 # Output format selection
@@ -162,7 +172,7 @@ def main():
                             
                             # Show extracted frames (if any)
                             
-                            frames_dir = Path('data/processed/frames') / video_path.stem
+                            
                             entries = os.listdir(frames_dir)  
   
                             # Sort by modification time  
@@ -175,6 +185,15 @@ def main():
                             image_arr = []
                             imagepath_arr = [] 
                             Path(f"data/pdf/{video_path.stem}").mkdir(parents=True, exist_ok=True)
+                            # Create an instance of FPDF class  
+                            pdf = FPDF()  
+                            
+                            # Add a page to the PDF  
+                            pdf.add_page()  
+                            
+                            # Save the PDF with a name (e.g., blank.pdf)  
+                            pdf.output(f"data/pdf/{video_path.stem}/user_guide.pdf")
+
                             for filename in sorted_entries_by_mtime:  
                                 # Construct full file path  
                                 file_path = os.path.join(frames_dir, filename)  
@@ -196,10 +215,11 @@ def main():
                             # Generate PDF using OpenAI
                             pdf_path = f'data/pdf/{video_path.stem}/user_guide.pdf'
                             separator = ', '
+                            #transcription = "Hi, this is Tom from the M&A Path team. I'm showing you how to create a project in M&A Path. Firstly, you click on the new project button, which brings up a modal. You enter the information of including project name, engagement lead and other fields. And when complete, you can click the Create button. "
                             st.info(f"{separator.join(imagepath_arr)}")
                             pdf_contents = [{
                                                 "type": "text",
-                                                "text": f"Remove similar looking images from the images list {separator.join(imagepath_arr)} and consider contents of one of the duplicate images and unique images and return code that I can use for my python fpdf package that I can pass to the package to generate a well-styled multi page pdf in {target_language}?  I want the code to include an explanation of each of the images represents and I want to include each image in the pdf as well and the content . Images and contents do not overlap. I don't want any extra detail in your response.  I literally want to be able to pass your response into my fpdf package. the generated pdf name will be user_guide.pdf and the file path will be {pdf_path} M&A Path text will be in red color. PDF should have a header and footer"
+                                                "text": f"Remove similar looking images from the images list {separator.join(imagepath_arr)} and consider contents of one of the duplicate images and unique images and return code that I can use for my python fpdf package that I can pass to the package to generate a well-styled multi page pdf in {target_language}?  I want the code to include an detail explanation of each of the images represents and I want to include each image in the pdf as well and the content . The pdf format must be same as image data/template/sample_template.jpg. Images and contents do not overlap. I don't want any extra detail in your response.  I literally want to be able to pass your response into my fpdf package. the generated pdf name will be user_guide.pdf and the file path will be {pdf_path}. PDF should have a header and footer. The Project name is M&A path. The Heading in each page will be in red and boldand the description of the image will be in black. each page will have only one image and details description of the image. Add the line # -*- coding: iso-8859-1 -*- at the top of the pdf code."
                                             }]
                             for image_data in image_arr:
                                 pdf_content = {

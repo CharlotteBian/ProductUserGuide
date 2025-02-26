@@ -10,6 +10,7 @@ from moviepy.editor import VideoFileClip
 import os 
 from typing import Dict
 import streamlit as st
+import speech_recognition as sr 
 
 import re
 try:
@@ -28,6 +29,7 @@ class VideoProcessor:
         self.logger = logging.getLogger(__name__)
         self.supported_formats = config['video']['supported_formats']
         self.youtube_patterns = config['video']['youtube']['url_patterns']
+        self.model_name = config['audio']['model']
         
     def is_youtube_url(self, url: str) -> bool:
         """Check if the provided URL is a valid YouTube URL."""
@@ -115,7 +117,6 @@ class VideoProcessor:
             else:
                 video_path = Path(input_path)
             
-            print(f"video_path , {video_path}")
             # Validate the video file
             #self.validate_video(video_path)
             
@@ -244,22 +245,28 @@ class VideoProcessor:
             self.logger.error(f"Error extracting audio: {str(e)}")
             raise
     
-    def transcribe(self, audio_path: Path) -> Dict[str, str]:
+    def transcribe_audio(self, audio_path):
         """Transcribe audio file to text."""
-        try:
-            if self.model_name == "whisper":
-                result = self.model.transcribe(str(audio_path))
-                transcription = {
-                    'text': result['text'],
-                    'language': result.get('language', 'en')
-                }
-            else:
-                # Implementation for Wav2Vec2 would go here
-                raise NotImplementedError("Wav2Vec2 not yet implemented")
-                
-            self.logger.info(f"Transcription completed successfully")
-            return transcription
+        st.info(f"audio_path, {audio_path}")
+        if self.model_name == "whisper":
+            result = self.model.transcribe(str(audio_path))
+            transcription = {
+                'text': result['text'],
+                'language': result.get('language', 'en')
+            }
+        else:
+            # Implementation for Wav2Vec2 would go here
+            raise NotImplementedError("Wav2Vec2 not yet implemented")
             
-        except Exception as e:
-            self.logger.error(f"Error during transcription: {str(e)}")
-            raise 
+        self.logger.info(f"Transcription completed successfully")
+        return transcription
+        
+    def directory_has_files(self, directory_path):  
+        # Iterate over the entries in the directory  
+        for entry in os.listdir(directory_path):  
+            # Construct full path  
+            full_path = os.path.join(directory_path, entry)  
+            # Check if it is a file  
+            if os.path.isfile(full_path):  
+                return True  
+        return False
