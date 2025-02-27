@@ -1,11 +1,13 @@
+import base64
+import requests
 import streamlit as st
 import yaml
 from pathlib import Path
 from src.video.processor import VideoProcessor
-from src.audio.transcriber import Transcriber
-import tempfile
 import os
-import humanize
+from fpdf import FPDF
+import json
+import subprocess
 
 def load_config():
     with open("config/config.yaml", "r") as f:
@@ -31,7 +33,6 @@ def main():
     
     config = load_config()
     video_processor = VideoProcessor(config)
-    transcriber = Transcriber(config)
     
     # Create two columns for input and preview
     col1, col2 = st.columns([1, 1])
@@ -40,13 +41,15 @@ def main():
         st.subheader("Input Options")
         
         # Input selection
+        project_name = st.text_input("Enter project name")
         input_type = st.radio(
             "Choose input type:",
-            ["Upload Video", "YouTube URL"],
+            ["Upload Video"],
             help="Select whether to upload a video file or provide a YouTube URL"
         )
         
         video_path = None
+        frames = None
         
         # Add compression settings
         max_size = st.slider(
@@ -65,24 +68,26 @@ def main():
             )
             if uploaded_file:
                 file_size = len(uploaded_file.getvalue()) / (1024 * 1024)  # Size in MB
-                st.info(f"Original file size: {humanize.naturalsize(len(uploaded_file.getvalue()))}")
+                #st.info(f"Original file size: {humanize.naturalsize(len(uploaded_file.getvalue()))}")
                 
                 # Save uploaded file temporarily
                 temp_path = Path("data/raw") / uploaded_file.name
                 temp_path.parent.mkdir(parents=True, exist_ok=True)
                 temp_path.write_bytes(uploaded_file.read())
-                
+                print(f"temp_path, {temp_path}")
                 try:
                     with st.spinner("Processing video..."):
                         # Compress video if needed
-                        video_path = video_processor.process_input(temp_path, max_size_mb=max_size)
+                        video_path = Path(video_processor.process_input(temp_path, max_size_mb=max_size))
+                        print(f"video_path, {video_path}")
+                        #st.info(f"Hello, {temp_path}!")
                         
                         if video_path != temp_path:
                             compressed_size = os.path.getsize(video_path) / (1024 * 1024)
                             st.success(f"Video compressed from {file_size:.1f}MB to {compressed_size:.1f}MB")
                         
                     # Show video preview
-                    st.video(video_path)
+                    st.video(str(video_path))
                     
                 except Exception as e:
                     st.error(f"Error processing video: {str(e)}")
@@ -105,95 +110,168 @@ def main():
                 except Exception as e:
                     st.error(f"Error downloading video: {str(e)}")
         
+    
+    with col2:
+        
         if video_path:
-            # Add this check before processing
+            # Show processing status and preview
+            st.info("Video loaded and ready for processing!")
             if not video_path.exists():
                 st.error(f"Video file not found at: {video_path}")
                 st.stop()
             
-            st.markdown("---")
-            st.subheader("Output Options")
-            
-            # Language selection
-            target_language = st.selectbox(
-                "Select output language",
-                config['nlp']['translation']['supported_languages'],
-                format_func=lambda x: {'en': 'English', 'es': 'Spanish', 
-                                     'fr': 'French', 'zh': 'Chinese', 
-                                     'de': 'German'}[x]
-            )
-            
-            # Output format selection
-            output_format = st.selectbox(
-                "Select output format",
-                ["PDF", "HTML"],
-                help="Choose the format for your user guide"
-            )
-            
-            if st.button("🔄 Generate User Guide"):
-                try:
-                    with st.spinner("Processing video..."):
-                        # Show progress
-                        progress_bar = st.progress(0)
-                        
-                        # Extract audio
-                        st.write("Extracting audio...")
-                        try:
-                            audio_path = video_processor.extract_audio(video_path)
-                            st.success(f"Audio extracted to: {audio_path}")
-                            progress_bar.progress(25)
-                        except Exception as e:
-                            st.error(f"Error extracting audio: {str(e)}")
-                            st.stop()
-                        
-                        # Transcribe audio
-                        st.write("Transcribing content...")
-                        try:
-                            transcription = transcriber.transcribe(audio_path)
-                            st.success("Transcription completed")
-                            progress_bar.progress(50)
-                        except Exception as e:
-                            st.error(f"Error during transcription: {str(e)}")
-                            st.stop()
-                        
-                        st.write("Generating summary...")
-                        progress_bar.progress(75)
-                        
-                        st.write("Creating user guide...")
-                        progress_bar.progress(100)
-                        
-                        st.success("User guide generated successfully!")
-                        
-                        # Add download button (mock for now)
-                        st.download_button(
-                            label="⬇️ Download User Guide",
-                            data=b"Sample guide content",
-                            file_name=f"user_guide_{target_language}.{output_format.lower()}",
-                            mime="application/pdf" if output_format == "PDF" else "text/html"
-                        )
-                        
+            frames_dir = Path('data/processed/frames') / video_path.stem
+            frames_dir.mkdir(parents=True, exist_ok=True)
+            frame_data = video_processor.directory_has_files(frames_dir)
+            #st.info(f"frame_data, {frame_data}")
+            if not frame_data:
+                try: 
+                    with st.spinner("Extracting Frames..."):
+                        frames = video_processor.extract_frames(video_path)
+                    
+                    st.subheader("Preview")
+                    st.subheader("Key Frames")
+                    for i, frame in enumerate(frames[:3]):  # Show first 3 frames
+                        st.image(str(frame), caption=f"Frame {i+1}")
+                    st.success("Frames extracted successfully!")
                 except Exception as e:
-                    st.error(f"Error generating guide: {str(e)}")
-                finally:
-                    # Cleanup temporary files
-                    if video_path and video_path.exists():
-                        try:
-                            os.unlink(video_path)
-                        except Exception as e:
-                            st.warning(f"Could not remove temporary file: {str(e)}")
-    
-    with col2:
-        st.subheader("Preview")
-        if video_path:
-            # Show processing status and preview
-            st.info("Video loaded and ready for processing!")
+                    st.error(f"Error extracting frames: {str(e)}")
             
-            # Show extracted frames (if any)
-            frames = video_processor.extract_frames(video_path)
-            if frames:
-                st.subheader("Key Frames")
-                for i, frame in enumerate(frames[:3]):  # Show first 3 frames
-                    st.image(str(frame), caption=f"Frame {i+1}")
+            
+            #st.info(f"{video_processor.directory_has_files(frames_dir)}")
+            if video_processor.directory_has_files(frames_dir):
+                with st.spinner("Extracting audio..."):
+                    audio_path = video_processor.extract_audio(video_path)
+                if audio_path:
+                    transcription= video_processor.transcribe_audio(audio_path)
+                    
+                #st.info(f"audio_path, {audio_path}")
+                # Language selection
+                target_language = st.selectbox(
+                    "Select output language",
+                    config['nlp']['translation']['supported_languages'],
+                    format_func=lambda x: {'english': 'English', 'spanish': 'Spanish', 
+                                        'french': 'French', 'chinese': 'Chinese', 
+                                        'german': 'German'}[x]
+                )
+                #st.info(f"Target lang, {target_language}")
+                # Output format selection
+                output_format = st.selectbox(
+                    "Select output format",
+                    ["PDF", "HTML"],
+                    help="Choose the format for your user guide"
+                )
+                if st.button("🔄 Generate User Guide"):
+                    try:
+                        with st.spinner("Generating PDF..."):
+                            # Show progress
+                            progress_bar = st.progress(0)
+                            
+                            # Show extracted frames (if any)
+                            
+                            
+                            entries = os.listdir(frames_dir)  
+  
+                            # Sort by modification time  
+                            sorted_entries_by_mtime = sorted(entries, key=lambda entry: os.path.getmtime(os.path.join(frames_dir, entry)))
+
+                            url = "https://ngc-genai-proxy-stage.pwcinternal.com/chat/completions"  
+                            headers = {'Authorization': 'Bearer sk-Tc05RYjXNEaHEiCGpcmVqg'}
+                            # Loop through all files in the directory 
+                            # image_arr = []
+                            image_arr = []
+                            imagepath_arr = [] 
+                            Path(f"data/pdf/{video_path.stem}").mkdir(parents=True, exist_ok=True)
+                            # Create an instance of FPDF class  
+                            pdf = FPDF()  
+                            
+                            # Add a page to the PDF  
+                            pdf.add_page()  
+                            
+                            # Save the PDF with a name (e.g., blank.pdf)  
+                            pdf.output(f"data/pdf/{video_path.stem}/user_guide.pdf")
+
+                            for filename in sorted_entries_by_mtime:  
+                                # Construct full file path  
+                                file_path = os.path.join(frames_dir, filename)  
+
+                                # Check if it is a file and has an image extension  
+                                if os.path.isfile(file_path) and filename.lower().endswith(('.jpg')):  
+                                    try:  
+                                        # Open the image file  
+                                        with open(f"{file_path}", 'rb') as image_file:
+                            
+                                            base64_encoded_image = base64.b64encode(image_file.read())
+                                            base64_image_string = base64_encoded_image.decode('utf-8')
+                                            image_arr.append(base64_image_string)
+                                            imagepath_arr.append(file_path)
+                                        print(f"Processing image: {file_path}")  
+
+                                    except Exception as e:  
+                                        print(f"Could not open {filename}: {e}")
+                            # Generate PDF using OpenAI
+                            pdf_path = f'data/pdf/{video_path.stem}/user_guide.pdf'
+                            sample_pdf = f'data/template/sample.pdf'
+                            separator = ', '
+                            st.info(project_name)
+                            #transcription = "Hi, this is Tom from the M&A Path team. I'm showing you how to create a project in M&A Path. Firstly, you click on the new project button, which brings up a modal. You enter the information of including project name, engagement lead and other fields. And when complete, you can click the Create button. "
+                            #st.info(f"{separator.join(imagepath_arr)}")
+                            pdf_contents = [{
+                                                "type": "text",
+                                                "text": f"Remove similar looking images from the images list {separator.join(imagepath_arr)} and consider contents of one of the duplicate images and unique images and return code that I can use for my python fpdf package that I can pass to the package to generate a well-styled multi page pdf in {target_language}?  I want the code to include an thorough detail explanation of each of the images represents and I want to include each image in the pdf as well and the content . Images and contents do not overlap in the pdf. I don't want any extra detail in your response.  I literally want to be able to pass your response into my fpdf package. the generated pdf name will be user_guide.pdf and the file path will be {pdf_path}. The header, description and image in PDF should look like {sample_pdf}. PDF should have a header and footer. The Project name is {project_name}-User Guide and it must be at the heading. In each page the color code of text in heading will be in #D93954 and background of the header will be in light grey. the description of the image will be in black and must be above the image. each page will have only one image and elaborate description of the image. Add the line # -*- coding: iso-8859-1 -*- at the top of the pdf code. Compare between the {transcription} and the description of each image and revert back suitable content for each image. Remove person's name from the content."
+                                            }]
+                            for image_data in image_arr:
+                                pdf_content = {
+                                            "type": "image_url",
+                                            "image_url": {
+                                                "url": f"data:image/gif;base64,{str(image_data)}"
+                                            }
+                                        }
+                                pdf_contents.append(pdf_content)
+
+                            data_pdf = {
+                                    "messages": [
+                                        {
+                                            "role": "user",
+                                            "content": pdf_contents
+
+                                        }
+                                    ],
+                                    "model": "azure.gpt-4o"
+                                } 
+
+                            response = requests.post(url, headers=headers, json=data_pdf, verify=False)
+                            data_resp = json.loads(response.content)
+                            #st.info(data_resp['choices'][0]['message']['content'].replace('python\n', ''))
+
+
+                            code = data_resp['choices'][0]['message']['content'].replace('python\n', '').replace('```','')
+
+                            with open(f"data/pdf/{video_path.stem}/generated_code.py", "w") as file:
+                                file.write(code)
+                            # Step 2: Execute the code using subprocess
+                            subprocess.run(["myenv/Scripts/python.exe", f"data/pdf/{video_path.stem}/generated_code.py"])
+                            
+                            #Inform the user
+                            print("PDF generated successfully") 
+                            progress_bar.progress(75)
+                            st.success(f"PDF created at {pdf_path}")  
+
+                            # Read the PDF file content  
+                            with open(pdf_path, 'rb') as file:  
+                                pdf_data = file.read()  
+
+                            st.download_button(
+                                label="⬇️ Download User Guide",
+                                data=pdf_data,
+                                file_name=f"user_guide_{target_language}.{output_format.lower()}",
+                                mime="application/pdf" if output_format == "PDF" else "text/html"
+                            )
+                            progress_bar.progress(100)
+                        
+                    except Exception as e:
+                        st.error(f"Error generating guide: {str(e)}")
+                
 
 if __name__ == "__main__":
     main()

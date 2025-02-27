@@ -2,9 +2,17 @@ import cv2
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Dict
 from pytube import YouTube
+from moviepy.editor import VideoFileClip  
+import os
+import streamlit as st
+import torch
+import whisper
+import speech_recognition as sr 
+
 import re
+
 try:
     from moviepy.editor import VideoFileClip
 except ImportError as e:
@@ -21,6 +29,30 @@ class VideoProcessor:
         self.logger = logging.getLogger(__name__)
         self.supported_formats = config['video']['supported_formats']
         self.youtube_patterns = config['video']['youtube']['url_patterns']
+        self.model_name = config['audio']['model']
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {self.device}")
+        
+        # Initialize the model
+        self.model = self._load_model()
+        
+    def _load_model(self):
+        """Load the specified speech-to-text model."""
+        try:
+            if self.model_name == "whisper":
+                print("Loading Whisper model...")
+                model = whisper.load_model("base", device=self.device)
+                print("Whisper model loaded successfully")
+            else:
+                raise NotImplementedError("Wav2Vec2 not yet implemented")
+                
+            self.logger.info(f"Loaded {self.model_name} model successfully on {self.device}")
+            return model
+            
+        except Exception as e:
+            self.logger.error(f"Error loading model: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+            raise
         
     def is_youtube_url(self, url: str) -> bool:
         """Check if the provided URL is a valid YouTube URL."""
@@ -109,7 +141,7 @@ class VideoProcessor:
                 video_path = Path(input_path)
             
             # Validate the video file
-            self.validate_video(video_path)
+            #self.validate_video(video_path)
             
             # Compress video if needed
             compressed_path = self.compress_video(video_path, max_size_mb)
@@ -149,6 +181,7 @@ class VideoProcessor:
     def extract_audio(self, video_path: Path) -> Path:
         """Extract audio from video file."""
         try:
+            
             # Convert to absolute paths
             video_path = Path(video_path).resolve()
             base_dir = Path().resolve()
@@ -157,55 +190,14 @@ class VideoProcessor:
             
             output_path = output_dir / f"{video_path.stem}.wav"
             
-            # Try using ffmpeg directly instead of moviepy for more reliable extraction
-            import ffmpeg
-            
-            try:
-                # First attempt: direct ffmpeg extraction
-                stream = ffmpeg.input(str(video_path))
-                stream = ffmpeg.output(stream, str(output_path),
-                                     acodec='pcm_s16le',
-                                     ac=1,
-                                     ar='44100',
-                                     loglevel='error',
-                                     **{'y': None})  # Overwrite if exists
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-            except ffmpeg.Error as e:
-                self.logger.warning(f"Direct ffmpeg extraction failed, trying fallback method: {str(e)}")
-                
-                # Fallback method: Try re-encoding the video first
-                temp_video = output_dir / f"temp_{video_path.name}"
-                
-                # Re-encode video to fix potential corruption
-                stream = ffmpeg.input(str(video_path))
-                stream = ffmpeg.output(stream, str(temp_video),
-                                     vcodec='libx264',
-                                     acodec='aac',
-                                     strict='experimental',
-                                     loglevel='error',
-                                     **{'y': None})
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-                # Now try audio extraction from the re-encoded video
-                stream = ffmpeg.input(str(temp_video))
-                stream = ffmpeg.output(stream, str(output_path),
-                                     acodec='pcm_s16le',
-                                     ac=1,
-                                     ar='44100',
-                                     loglevel='error',
-                                     **{'y': None})
-                
-                ffmpeg.run(stream, capture_stdout=True, capture_stderr=True)
-                
-                # Clean up temporary file
-                if temp_video.exists():
-                    temp_video.unlink()
-            
-            if not output_path.exists():
-                raise FileNotFoundError(f"Failed to create audio file at {output_path}")
+            video = VideoFileClip(str(video_path))  
+
+            # Extract the audio  
+            audio = video.audio  
+
+            # Write the audio to a file  
+            audio.write_audiofile(str(output_path))
+
             
             self.logger.info(f"Audio extracted successfully: {output_path}")
             return output_path
@@ -249,4 +241,78 @@ class VideoProcessor:
             
         except Exception as e:
             self.logger.error(f"Error extracting frames: {str(e)}")
-            raise 
+            raise
+    
+    def extract_audio_segments(self, video_path, intervals):  
+          
+        try:
+            # Load the video file  
+            video = VideoFileClip(video_path)
+            base_dir = Path().resolve()
+            
+            # Iterate over the specified intervals  
+            for i, (start_time, end_time) in enumerate(intervals):  
+                # Extract the audio segment  
+                audio_segment = video.audio.subclip(start_time, end_time)  
+                video_path = Path(video_path).resolve()
+                # Define the output path  
+                output_path = base_dir / "data" / "processed" / "audio" / f"{video_path.stem}"
+                output_path.mkdir(parents=True, exist_ok=True)
+                
+                audio_path = output_path / f'audio_segment_{i}.mp3'  
+                
+                # Write the audio segment to a file  
+                audio_segment.write_audiofile(audio_path)  
+            return output_path
+        except Exception as e:
+            self.logger.error(f"Error extracting audio: {str(e)}")
+            raise
+    
+    def transcribe(self, target_language, audio_path: Path) -> Dict[str, str]:
+        """Transcribe audio file to text."""
+        
+        if self.model_name == "whisper":
+            result = self.model.transcribe(str(audio_path))
+            transcription = {
+                'text': result['text'],
+                'language': result.get('language', target_language)
+            }
+        else:
+            # Implementation for Wav2Vec2 would go here
+            raise NotImplementedError("Wav2Vec2 not yet implemented")
+            
+        self.logger.info(f"Transcription completed successfully")
+        return transcription
+    
+    def transcribe_audio(self, audio_path: Path):
+        """Transcribe audio file to text."""
+        
+        # Initialize recognizer  
+        recognizer = sr.Recognizer()  
+
+        # Use the audio file as the audio source  
+        with sr.AudioFile(str(audio_path)) as source:  
+            # Adjust the recognizer sensitivity to ambient noise and record audio  
+            recognizer.adjust_for_ambient_noise(source)  
+            audio_data = recognizer.record(source)  
+
+        # Recognize the speech in the audio  
+        try:  
+            # Using Google Web Speech API  
+            text = recognizer.recognize_google(audio_data)  
+            return text
+        except sr.UnknownValueError:  
+            print("Google Speech Recognition could not understand audio")  
+        except sr.RequestError as e:  
+            print(f"Could not request results from Google Speech Recognition service; {e}")
+        
+        
+    def directory_has_files(self, directory_path):  
+        # Iterate over the entries in the directory  
+        for entry in os.listdir(directory_path):  
+            # Construct full path  
+            full_path = os.path.join(directory_path, entry)  
+            # Check if it is a file  
+            if os.path.isfile(full_path):  
+                return True  
+        return False
