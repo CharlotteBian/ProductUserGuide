@@ -1,18 +1,18 @@
 import cv2
-from googletrans import Translator
 import numpy as np
 from pathlib import Path
 import logging
-from typing import Tuple, List, Union
+from typing import Tuple, List, Union, Dict
 from pytube import YouTube
-import requests
 from moviepy.editor import VideoFileClip  
-import os 
-from typing import Dict
+import os
 import streamlit as st
+import torch
+import whisper
 import speech_recognition as sr 
 
 import re
+
 try:
     from moviepy.editor import VideoFileClip
 except ImportError as e:
@@ -30,6 +30,29 @@ class VideoProcessor:
         self.supported_formats = config['video']['supported_formats']
         self.youtube_patterns = config['video']['youtube']['url_patterns']
         self.model_name = config['audio']['model']
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"Using device: {self.device}")
+        
+        # Initialize the model
+        self.model = self._load_model()
+        
+    def _load_model(self):
+        """Load the specified speech-to-text model."""
+        try:
+            if self.model_name == "whisper":
+                print("Loading Whisper model...")
+                model = whisper.load_model("base", device=self.device)
+                print("Whisper model loaded successfully")
+            else:
+                raise NotImplementedError("Wav2Vec2 not yet implemented")
+                
+            self.logger.info(f"Loaded {self.model_name} model successfully on {self.device}")
+            return model
+            
+        except Exception as e:
+            self.logger.error(f"Error loading model: {str(e)}")
+            print(f"Detailed error: {str(e)}")
+            raise
         
     def is_youtube_url(self, url: str) -> bool:
         """Check if the provided URL is a valid YouTube URL."""
@@ -245,14 +268,14 @@ class VideoProcessor:
             self.logger.error(f"Error extracting audio: {str(e)}")
             raise
     
-    def transcribe_audio(self, audio_path):
+    def transcribe(self, target_language, audio_path: Path) -> Dict[str, str]:
         """Transcribe audio file to text."""
-        st.info(f"audio_path, {audio_path}")
+        
         if self.model_name == "whisper":
             result = self.model.transcribe(str(audio_path))
             transcription = {
                 'text': result['text'],
-                'language': result.get('language', 'en')
+                'language': result.get('language', target_language)
             }
         else:
             # Implementation for Wav2Vec2 would go here
@@ -260,6 +283,29 @@ class VideoProcessor:
             
         self.logger.info(f"Transcription completed successfully")
         return transcription
+    
+    def transcribe_audio(self, audio_path: Path):
+        """Transcribe audio file to text."""
+        
+        # Initialize recognizer  
+        recognizer = sr.Recognizer()  
+
+        # Use the audio file as the audio source  
+        with sr.AudioFile(str(audio_path)) as source:  
+            # Adjust the recognizer sensitivity to ambient noise and record audio  
+            recognizer.adjust_for_ambient_noise(source)  
+            audio_data = recognizer.record(source)  
+
+        # Recognize the speech in the audio  
+        try:  
+            # Using Google Web Speech API  
+            text = recognizer.recognize_google(audio_data)  
+            return text
+        except sr.UnknownValueError:  
+            print("Google Speech Recognition could not understand audio")  
+        except sr.RequestError as e:  
+            print(f"Could not request results from Google Speech Recognition service; {e}")
+        
         
     def directory_has_files(self, directory_path):  
         # Iterate over the entries in the directory  

@@ -4,14 +4,10 @@ import streamlit as st
 import yaml
 from pathlib import Path
 from src.video.processor import VideoProcessor
-import tempfile
 import os
-import humanize
-from PIL import Image 
 from fpdf import FPDF
 import json
 import subprocess
-import PyPDF2
 
 def load_config():
     with open("config/config.yaml", "r") as f:
@@ -45,9 +41,10 @@ def main():
         st.subheader("Input Options")
         
         # Input selection
+        project_name = st.text_input("Enter project name")
         input_type = st.radio(
             "Choose input type:",
-            ["Upload Video", "YouTube URL"],
+            ["Upload Video"],
             help="Select whether to upload a video file or provide a YouTube URL"
         )
         
@@ -71,7 +68,7 @@ def main():
             )
             if uploaded_file:
                 file_size = len(uploaded_file.getvalue()) / (1024 * 1024)  # Size in MB
-                st.info(f"Original file size: {humanize.naturalsize(len(uploaded_file.getvalue()))}")
+                #st.info(f"Original file size: {humanize.naturalsize(len(uploaded_file.getvalue()))}")
                 
                 # Save uploaded file temporarily
                 temp_path = Path("data/raw") / uploaded_file.name
@@ -83,7 +80,7 @@ def main():
                         # Compress video if needed
                         video_path = Path(video_processor.process_input(temp_path, max_size_mb=max_size))
                         print(f"video_path, {video_path}")
-                        st.info(f"Hello, {temp_path}!")
+                        #st.info(f"Hello, {temp_path}!")
                         
                         if video_path != temp_path:
                             compressed_size = os.path.getsize(video_path) / (1024 * 1024)
@@ -126,7 +123,7 @@ def main():
             frames_dir = Path('data/processed/frames') / video_path.stem
             frames_dir.mkdir(parents=True, exist_ok=True)
             frame_data = video_processor.directory_has_files(frames_dir)
-            st.info(f"frame_data, {frame_data}")
+            #st.info(f"frame_data, {frame_data}")
             if not frame_data:
                 try: 
                     with st.spinner("Extracting Frames..."):
@@ -141,14 +138,14 @@ def main():
                     st.error(f"Error extracting frames: {str(e)}")
             
             
-            st.info(f"{video_processor.directory_has_files(frames_dir)}")
+            #st.info(f"{video_processor.directory_has_files(frames_dir)}")
             if video_processor.directory_has_files(frames_dir):
                 with st.spinner("Extracting audio..."):
                     audio_path = video_processor.extract_audio(video_path)
-                # if audio_path:
-                #     audio_text= video_processor.transcribe_audio(audio_path)
-                #     st.info(f"audio_text, {audio_text}")
-                st.info(f"audio_path, {audio_path}")
+                if audio_path:
+                    transcription= video_processor.transcribe_audio(audio_path)
+                    
+                #st.info(f"audio_path, {audio_path}")
                 # Language selection
                 target_language = st.selectbox(
                     "Select output language",
@@ -157,7 +154,7 @@ def main():
                                         'french': 'French', 'chinese': 'Chinese', 
                                         'german': 'German'}[x]
                 )
-                st.info(f"Target lang, {target_language}")
+                #st.info(f"Target lang, {target_language}")
                 # Output format selection
                 output_format = st.selectbox(
                     "Select output format",
@@ -214,12 +211,14 @@ def main():
                                         print(f"Could not open {filename}: {e}")
                             # Generate PDF using OpenAI
                             pdf_path = f'data/pdf/{video_path.stem}/user_guide.pdf'
+                            sample_pdf = f'data/template/sample.pdf'
                             separator = ', '
+                            st.info(project_name)
                             #transcription = "Hi, this is Tom from the M&A Path team. I'm showing you how to create a project in M&A Path. Firstly, you click on the new project button, which brings up a modal. You enter the information of including project name, engagement lead and other fields. And when complete, you can click the Create button. "
-                            st.info(f"{separator.join(imagepath_arr)}")
+                            #st.info(f"{separator.join(imagepath_arr)}")
                             pdf_contents = [{
                                                 "type": "text",
-                                                "text": f"Remove similar looking images from the images list {separator.join(imagepath_arr)} and consider contents of one of the duplicate images and unique images and return code that I can use for my python fpdf package that I can pass to the package to generate a well-styled multi page pdf in {target_language}?  I want the code to include an detail explanation of each of the images represents and I want to include each image in the pdf as well and the content . The pdf format must be same as image data/template/sample_template.jpg. Images and contents do not overlap. I don't want any extra detail in your response.  I literally want to be able to pass your response into my fpdf package. the generated pdf name will be user_guide.pdf and the file path will be {pdf_path}. PDF should have a header and footer. The Project name is M&A path. The Heading in each page will be in red and boldand the description of the image will be in black. each page will have only one image and details description of the image. Add the line # -*- coding: iso-8859-1 -*- at the top of the pdf code."
+                                                "text": f"Remove similar looking images from the images list {separator.join(imagepath_arr)} and consider contents of one of the duplicate images and unique images and return code that I can use for my python fpdf package that I can pass to the package to generate a well-styled multi page pdf in {target_language}?  I want the code to include an thorough detail explanation of each of the images represents and I want to include each image in the pdf as well and the content . Images and contents do not overlap in the pdf. I don't want any extra detail in your response.  I literally want to be able to pass your response into my fpdf package. the generated pdf name will be user_guide.pdf and the file path will be {pdf_path}. The header, description and image in PDF should look like {sample_pdf}. PDF should have a header and footer. The Project name is {project_name}-User Guide and it must be at the heading. In each page the color code of text in heading will be in #D93954 and background of the header will be in light grey. the description of the image will be in black and must be above the image. each page will have only one image and elaborate description of the image. Add the line # -*- coding: iso-8859-1 -*- at the top of the pdf code. Compare between the {transcription} and the description of each image and revert back suitable content for each image. Remove person's name from the content."
                                             }]
                             for image_data in image_arr:
                                 pdf_content = {
@@ -251,7 +250,7 @@ def main():
                             with open(f"data/pdf/{video_path.stem}/generated_code.py", "w") as file:
                                 file.write(code)
                             # Step 2: Execute the code using subprocess
-                            subprocess.run(["venv/Scripts/python.exe", f"data/pdf/{video_path.stem}/generated_code.py"])
+                            subprocess.run(["myenv/Scripts/python.exe", f"data/pdf/{video_path.stem}/generated_code.py"])
                             
                             #Inform the user
                             print("PDF generated successfully") 
